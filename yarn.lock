@@ -785,12 +785,14 @@ __metadata:
     "@eslint/js": "npm:^9.7.0"
     "@joliegg/moderation": "npm:^0.3.4"
     "@types/node": "npm:^20.14.10"
+    "@types/tmi.js": "npm:^1"
     "@typescript-eslint/eslint-plugin": "npm:^7.16.0"
     "@typescript-eslint/parser": "npm:^7.16.0"
     discord.js: "npm:^14.15.3"
     dotenv: "npm:^16.4.5"
     eslint: "npm:^9.7.0"
     prisma: "npm:^5.16.2"
+    tmi.js: "npm:^1.8.5"
     ts-node: "npm:^10.9.2"
     typescript: "npm:^5.5.3"
     typescript-eslint: "npm:^7.16.0"
@@ -1620,6 +1622,13 @@ __metadata:
     "@types/tough-cookie": "npm:*"
     form-data: "npm:^2.5.0"
   checksum: 10c0/dd3d03d68af95b1e1961dc51efc63023543a91a74afd481dafb441521a31baa58c42f80d3bdd0d5d4633aa777e31b17f7ff7bed5606ad3f5eb175a65148adbce
+  languageName: node
+  linkType: hard
+
+"@types/tmi.js@npm:^1":
+  version: 1.8.6
+  resolution: "@types/tmi.js@npm:1.8.6"
+  checksum: 10c0/f1983835b60b68584cf5373161addc9b7d3f0d45616efb4b6650aff8e8b477751680b74be07318b6b3eaa87908140ea7e0dac4fb952bb875f5a1b0c8e565f9e1
   languageName: node
   linkType: hard
 
@@ -4198,6 +4207,16 @@ __metadata:
   languageName: node
   linkType: hard
 
+"tmi.js@npm:^1.8.5":
+  version: 1.8.5
+  resolution: "tmi.js@npm:1.8.5"
+  dependencies:
+    node-fetch: "npm:^2.6.1"
+    ws: "npm:^8.2.0"
+  checksum: 10c0/a9fe7be5805c44ec1ba6dab0640c935b0ab6a8340b5a9cf9a9ce3731debd525dcbe0952f205f898c6fa94821492d58b26155a82b7854f18bfb1b3239b96f6d2f
+  languageName: node
+  linkType: hard
+
 "to-regex-range@npm:^5.0.1":
   version: 5.0.1
   resolution: "to-regex-range@npm:5.0.1"
@@ -4484,7 +4503,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"ws@npm:^8.16.0":
+"ws@npm:^8.16.0, ws@npm:^8.2.0":
   version: 8.18.0
   resolution: "ws@npm:8.18.0"
   peerDependencies:

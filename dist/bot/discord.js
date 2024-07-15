@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const discord_js_1 = require("discord.js");
 const utils_1 = require("../utils");
+const DAY_MILLISECONDS = 24 * 60 * 60 * 1000;
 class DiscordBot {
     configuration;
     moderationClient;
@@ -29,9 +30,17 @@ class DiscordBot {
                 discord_js_1.Partials.Reaction,
             ],
         });
+        // Message Events
         this._client.on(discord_js_1.Events.MessageCreate, this._onMessage.bind(this));
         this._client.on(discord_js_1.Events.MessageUpdate, this._onMessageUpdate.bind(this));
         this._client.on(discord_js_1.Events.MessageDelete, this._onMessageDelete.bind(this));
+        // Member Events
+        this._client.on(discord_js_1.Events.GuildMemberAdd, this._onMemberAdd.bind(this));
+        this._client.on(discord_js_1.Events.GuildMemberUpdate, this._onMemberUpdate.bind(this));
+        this._client.on(discord_js_1.Events.GuildMemberRemove, this._onMemberRemove.bind(this));
+        // Ban Events
+        this._client.on(discord_js_1.Events.GuildBanAdd, this._onMemberBan.bind(this));
+        this._client.on(discord_js_1.Events.GuildBanRemove, this._onMemberUnban.bind(this));
         this._client.on(discord_js_1.Events.ClientReady, (client) => {
             this.trigger('ready', client);
         });
@@ -277,6 +286,59 @@ class DiscordBot {
         }
         return this.trigger(discord_js_1.Events.MessageDelete, message);
     }
+    async _onMemberAdd(member) {
+        return this.trigger(discord_js_1.Events.GuildMemberAdd, member);
+    }
+    async _onMemberUpdate(oldMember, newMember) {
+        if (this.configuration.muteRole) {
+            const hadMuteRole = oldMember.roles.cache.has(this.configuration.muteRole);
+            const hasMuteRole = newMember.roles.cache.has(this.configuration.muteRole);
+            if (hadMuteRole && !hasMuteRole) {
+                await this.trigger('unmute', newMember);
+            }
+            else if (!hadMuteRole && hasMuteRole) {
+                await this.trigger('mute', newMember);
+            }
+        }
+        if (this.configuration.logsChannel) {
+            // Check for nickname changes
+            if (oldMember.nickname !== newMember.nickname) {
+                if (newMember.nickname === null) {
+                    await this.log('member', `**${newMember.user.tag} Nickname Removed**\nPrevious Nickname: **${oldMember.nickname}**`);
+                }
+                else {
+                    await this.log('member', `**${newMember.user.tag} Nickname Changed**\nPervious Nickname: **${oldMember.nickname}**\nNew Nickname: **${newMember.nickname}**`);
+                }
+            }
+            // Check for username changes
+            if (oldMember.user.username !== newMember.user.username) {
+                await this.log('member', `**${newMember.user.tag} Username Changed**\nPrevious Username: **${oldMember.user.username}**\nNew Username: **${newMember.user.username}**`);
+            }
+            // Check for avatar changes
+            if (oldMember.user.displayAvatarURL() !== newMember.user.displayAvatarURL()) {
+                const embed = new discord_js_1.EmbedBuilder()
+                    .setColor(0x7289DA)
+                    .setTitle(`**${newMember.user.tag} Avatar Changed**`)
+                    .setAuthor({
+                    name: newMember.user.username,
+                    iconURL: newMember.user.displayAvatarURL(),
+                })
+                    .setThumbnail(oldMember.user.displayAvatarURL())
+                    .setImage(newMember.user.displayAvatarURL());
+                await this.log('member', { embeds: [embed] });
+            }
+        }
+        return this.trigger(discord_js_1.Events.GuildMemberUpdate, oldMember, newMember);
+    }
+    async _onMemberRemove(member) {
+        return this.trigger(discord_js_1.Events.GuildMemberRemove, member);
+    }
+    async _onMemberBan(ban) {
+        return this.trigger(discord_js_1.Events.GuildBanAdd, ban);
+    }
+    async _onMemberUnban(ban) {
+        return this.trigger(discord_js_1.Events.GuildBanRemove, ban);
+    }
     on(event, listener) {
         const listeners = this.listeners.get(event) || [];
         listeners.push(listener);
@@ -314,9 +376,14 @@ class DiscordBot {
                         const { source, moderation } = await this.moderationClient.moderateLink(link);
                         if (moderation.length > 0) {
                             if (moderation.some(m => m.category === 'BLACK_LIST' || m.category === 'CUSTOM_BLACK_LIST')) {
-                                // TODO: Allow for a mute action
-                                // await mute(message.member);
                                 await message.delete();
+                                if (this.configuration.muteRole) {
+                                    const member = message.member;
+                                    if (member) {
+                                        await member.roles.add(this.configuration.muteRole);
+                                        await member.timeout(DAY_MILLISECONDS, 'Suspicious Activity: Blacklisted Link');
+                                    }
+                                }
                             }
                             else {
                                 await message.react('🚫');
@@ -356,7 +423,8 @@ class DiscordBot {
                 }
                 else if (attachment.contentType.indexOf('audio') > -1) {
                     try {
-                        for (const language of this.configuration.languages) {
+                        const languages = this.configuration.languages || ['en-US'];
+                        for (const language of languages) {
                             const { source, moderation } = await this.moderationClient.moderateAudio(attachment.url, language, 50);
                             if (moderation.length === 0) {
                                 continue;
@@ -422,7 +490,7 @@ class DiscordBot {
         return this.trigger('moderation', embed, moderation, message);
     }
     async log(type, message) {
-        if (this.configuration.logsChannel && type === 'message') {
+        if (this.configuration.logsChannel && (type === 'message' || type === 'member')) {
             await this.message(this.configuration.logsChannel, message);
         }
         return this.trigger('log', type, message);

@@ -1,4 +1,4 @@
-import { Client, ClientEvents, ColorResolvable, EmbedBuilder, Events, GatewayIntentBits, Message, MessageCreateOptions, MessagePayload, PartialMessage, Partials, TextChannel } from 'discord.js';
+import { Client, ClientEvents, ColorResolvable, EmbedBuilder, Events, GatewayIntentBits, GuildBan, GuildMember, Message, MessageCreateOptions, MessagePayload, PartialGuildMember, PartialMessage, Partials, TextChannel } from 'discord.js';
 
 import ModerationClient from '@joliegg/moderation';
 import { ModerationCategory } from '@joliegg/moderation/dist/types';
@@ -19,21 +19,38 @@ export interface DiscordConfiguration {
   muteRole?: string;
 }
 
-export type Listener =  (this: DiscordBot, ...args: any[]) => any;
-
-export type LogType = 'message' | 'user';
-
-export interface BotEvents extends ClientEvents {
-  moderation: [embed: EmbedBuilder, moderation: ModerationCategory[], message: Message<boolean> | PartialMessage];
-  log: [type: LogType ,message: string | MessagePayload | MessageCreateOptions];
+export type DiscordPermissions = {
+  images: boolean;
+  commands: boolean;
+  links: boolean;
+  attachments: boolean;
+  gifs: boolean;
+  stickers: boolean;
+  emotes: boolean;
+  messages: boolean;
+  mentions: boolean;
+  voice: boolean;
 }
 
+export type Listener =  (this: DiscordBot, ...args: any[]) => any;
+
+export type LogType = 'message' | 'member';
+
+export interface DiscordBotEvents extends ClientEvents {
+  moderation: [embed: EmbedBuilder, moderation: ModerationCategory[], message: Message<boolean> | PartialMessage];
+  log: [type: LogType ,message: string | MessagePayload | MessageCreateOptions];
+  mute: [member: GuildMember];
+  unmute: [member: GuildMember];
+}
+
+const DAY_MILLISECONDS = 24 * 60 * 60 * 1000;
+
 class DiscordBot  {
-  protected configuration: Record<string, any>;
+  protected configuration: DiscordConfiguration;
   protected moderationClient: ModerationClient;
   protected logger: Logger;
 
-  protected listeners = new Map<keyof BotEvents, Listener[]>();
+  protected listeners = new Map<keyof DiscordBotEvents, Listener[]>();
 
   protected _client: Client;
 
@@ -60,9 +77,19 @@ class DiscordBot  {
       ],
     });
 
+    // Message Events
     this._client.on(Events.MessageCreate, this._onMessage.bind(this));
     this._client.on(Events.MessageUpdate, this._onMessageUpdate.bind(this));
     this._client.on(Events.MessageDelete, this._onMessageDelete.bind(this));
+
+    // Member Events
+    this._client.on(Events.GuildMemberAdd, this._onMemberAdd.bind(this));
+    this._client.on(Events.GuildMemberUpdate, this._onMemberUpdate.bind(this));
+    this._client.on(Events.GuildMemberRemove, this._onMemberRemove.bind(this));
+
+    // Ban Events
+    this._client.on(Events.GuildBanAdd, this._onMemberBan.bind(this));
+    this._client.on(Events.GuildBanRemove, this._onMemberUnban.bind(this));
     
     this._client.on(Events.ClientReady, (client) => {
       this.trigger('ready', client);
@@ -263,7 +290,6 @@ class DiscordBot  {
     return embeds;
   }
     
-
   private async _onMessageDelete(message: Message<boolean> | PartialMessage): Promise<void> {
     try {
       const embeds: EmbedBuilder[] = [];
@@ -345,7 +371,70 @@ class DiscordBot  {
     return this.trigger(Events.MessageDelete, message);
   }
 
-  on<Event extends keyof BotEvents>(event: Event, listener: (...args: BotEvents[Event]) => void): this {
+  private async _onMemberAdd(member: GuildMember): Promise<void> {
+    
+    return this.trigger(Events.GuildMemberAdd, member);
+  }
+
+  private async _onMemberUpdate(oldMember: GuildMember | PartialGuildMember, newMember: GuildMember): Promise<void> { 
+    if (this.configuration.muteRole) {
+      const hadMuteRole = oldMember.roles.cache.has(this.configuration.muteRole);
+      const hasMuteRole = newMember.roles.cache.has(this.configuration.muteRole);
+
+      if (hadMuteRole && !hasMuteRole) {
+        await this.trigger('unmute', newMember);
+      } else if (!hadMuteRole && hasMuteRole) {
+        await this.trigger('mute', newMember);
+      }
+    }
+    
+    if (this.configuration.logsChannel) {
+      // Check for nickname changes
+      if (oldMember.nickname !== newMember.nickname) {
+        if (newMember.nickname === null) {
+          await this.log('member', `**${newMember.user.tag} Nickname Removed**\nPrevious Nickname: **${oldMember.nickname}**`);
+        } else {
+          await this.log('member', `**${newMember.user.tag} Nickname Changed**\nPervious Nickname: **${oldMember.nickname}**\nNew Nickname: **${newMember.nickname}**`);
+        }
+      }
+
+      // Check for username changes
+      if (oldMember.user.username !== newMember.user.username) {
+        await this.log('member', `**${newMember.user.tag} Username Changed**\nPrevious Username: **${oldMember.user.username}**\nNew Username: **${newMember.user.username}**`);
+      }
+
+      // Check for avatar changes
+      if (oldMember.user.displayAvatarURL() !== newMember.user.displayAvatarURL()) {
+        const embed = new EmbedBuilder()
+          .setColor(0x7289DA)
+          .setTitle(`**${newMember.user.tag} Avatar Changed**`)
+          .setAuthor({
+            name: newMember.user.username,
+            iconURL: newMember.user.displayAvatarURL(),
+          })
+          .setThumbnail(oldMember.user.displayAvatarURL())
+          .setImage(newMember.user.displayAvatarURL());
+
+        await this.log('member', { embeds: [embed] });
+      }
+    }
+
+    return this.trigger(Events.GuildMemberUpdate, oldMember, newMember);
+  }
+
+  private async _onMemberRemove(member: GuildMember | PartialGuildMember): Promise<void> {
+    return this.trigger(Events.GuildMemberRemove, member);
+  }
+
+  private async _onMemberBan(ban: GuildBan): Promise<void> {
+    return this.trigger(Events.GuildBanAdd, ban);
+  }
+
+  private async _onMemberUnban(ban: GuildBan): Promise<void> {
+    return this.trigger(Events.GuildBanRemove, ban);
+  }
+
+  on<Event extends keyof DiscordBotEvents>(event: Event, listener: (...args: DiscordBotEvents[Event]) => void): this {
     const listeners = this.listeners.get(event) || [];
 
     listeners.push(listener);
@@ -354,7 +443,7 @@ class DiscordBot  {
     return this;
   }
 
-  async trigger<Event extends keyof BotEvents>(event: Event, ...args: BotEvents[Event]): Promise<any> {
+  async trigger<Event extends keyof DiscordBotEvents>(event: Event, ...args: DiscordBotEvents[Event]): Promise<any> {
     const listeners = this.listeners.get(event);
 
     if (Array.isArray(listeners)) {
@@ -396,9 +485,16 @@ class DiscordBot  {
     
               if (moderation.length > 0) {
                 if (moderation.some(m => m.category === 'BLACK_LIST' || m.category === 'CUSTOM_BLACK_LIST')) {
-                  // TODO: Allow for a mute action
-                  // await mute(message.member);
                   await message.delete();
+
+                  if (this.configuration.muteRole) {
+                    const member = message.member;
+                    
+                    if (member) {
+                      await member.roles.add(this.configuration.muteRole);
+                      await member.timeout(DAY_MILLISECONDS, 'Suspicious Activity: Blacklisted Link');
+                    }
+                  }
                 } else {
                   await message.react('🚫');
                 }
@@ -437,7 +533,8 @@ class DiscordBot  {
             }
           } else if (attachment.contentType.indexOf('audio') > -1) {
             try {
-              for (const language of this.configuration.languages) {
+              const languages = this.configuration.languages || ['en-US'];
+              for (const language of languages) {
                 const { source, moderation } = await this.moderationClient.moderateAudio(attachment.url, language, 50);
     
                 if (moderation.length === 0) {
@@ -517,7 +614,7 @@ class DiscordBot  {
   }
 
   async log(type: LogType, message: string | MessagePayload | MessageCreateOptions) {
-    if (this.configuration.logsChannel && type === 'message') {
+    if (this.configuration.logsChannel && (type === 'message' || type === 'member')) {
       await this.message(this.configuration.logsChannel, message);
     }
 
