@@ -1,0 +1,30 @@
+{
+  "name": "@joliegg/bot",
+  "description": "A proof of concept structure for a multi service chatbot",
+  "author": "Diana Islas Ocampo",
+  "version": "0.1.0",
+  "main": "dist/index.js",
+  "license": "HL3-CL",
+  "scripts": {
+    "build": "yarn eslint . && rm -rf ./dist && yarn tsc --declaration",
+    "test": "ts-node ./test/index.ts"
+  },
+  "dependencies": {
+    "@joliegg/moderation": "^0.3.4",
+    "discord.js": "^14.15.3"
+  },
+  "devDependencies": {
+    "@babel/eslint-parser": "^7.24.8",
+    "@eslint/js": "^9.7.0",
+    "@types/node": "^20.14.10",
+    "@typescript-eslint/eslint-plugin": "^7.16.0",
+    "@typescript-eslint/parser": "^7.16.0",
+    "dotenv": "^16.4.5",
+    "eslint": "^9.7.0",
+    "prisma": "^5.16.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.3",
+    "typescript-eslint": "^7.16.0"
+  },
+  "packageManager": "yarn@4.3.1"
+}

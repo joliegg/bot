@@ -1,0 +1,54 @@
+# System Files
+.DS_Store
+*~
+._*
+~*
+.thumbs
+.Thumbs
+
+# Package File
+*.zip
+*.rar
+
+# IDE/Text Editor Generated
+.vscode
+.buildconfig
+
+# Package Managers
+node_modules
+package-lock.json
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+
+# Build systems
+.cache
+dist/dist
+
+# Other
+cache
+.cache
+.parcel-cache
+build
+release
+*.log
+.conf
+.ftpconfig
+.sftpconfig
+
+cypress/videos/
+cypress/screenshots/
+
+.env
+
+# Swap the comments on the following lines if you wish to use zero-installs
+# In that case, don't forget to run `yarn config set enableGlobalCache false`!
+# Documentation here: https://yarnpkg.com/features/caching#zero-installs
+
+#!.yarn/cache
+.pnp.*
+
+google.json
