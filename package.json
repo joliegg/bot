@@ -5,6 +5,9 @@
   "version": "0.1.0",
   "main": "dist/index.js",
   "license": "HL3-CL",
+  "engines": {
+    "node": ">=20.x"
+  },
   "scripts": {
     "build": "yarn eslint . && rm -rf ./dist && yarn tsc --declaration",
     "test": "ts-node ./test/index.ts"
@@ -26,5 +29,12 @@
     "typescript": "^5.5.3",
     "typescript-eslint": "^7.16.0"
   },
+  "files": [
+    "README.md",
+    "LICENSE.md",
+    "package.json",
+    "src/*",
+    "dist/*"
+  ],
   "packageManager": "yarn@4.3.1"
 }
