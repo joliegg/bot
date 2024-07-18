@@ -116,7 +116,7 @@ declare class TwitchBot {
     protected listeners: Map<keyof TwitchBotEvents, Listener[]>;
     protected _client: Client;
     constructor(configuration: TwitchConfiguration, moderationClient: ModerationClient, logger: Logger);
-    _onMessage(channel: string, userstate: ChatUserstate, message: string, self: boolean): Promise<void>;
+    _onMessage(channel: string, userstate: ChatUserstate, message: string, self: boolean): Promise<any>;
     moderateMessage(message: string, channel: string, userState: ChatUserstate): Promise<void>;
     moderationReport(title: string, moderation: ModerationCategory[], message: string, channel: string, userState: ChatUserstate): Promise<void>;
     client(): Client;

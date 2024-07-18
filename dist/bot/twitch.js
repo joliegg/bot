@@ -23,7 +23,7 @@ class TwitchBot {
         if (self)
             return;
         await this.moderateMessage(message, channel, userstate);
-        this.trigger('message', channel, userstate, message, self);
+        return this.trigger('message', channel, userstate, message, self);
     }
     async moderateMessage(message, channel, userState) {
         if (message.trim() == '') {
@@ -40,7 +40,7 @@ class TwitchBot {
             }
             const { source, moderation } = await this.moderationClient.moderateText(content, 50);
             if (moderation.length > 0) {
-                this.moderationReport('Text Moderation', moderation, message, channel, userState);
+                await this.moderationReport('Text Moderation', moderation, message, channel, userState);
             }
             for (const link of possibleLinks) {
                 try {
@@ -49,7 +49,7 @@ class TwitchBot {
                         if (moderation.some(m => m.category === 'BLACK_LIST' || m.category === 'CUSTOM_BLACK_LIST')) {
                             // TODO: We want to timeout the user for a certain amount of time
                         }
-                        this.moderationReport('Link Moderation', moderation, message, channel, userState);
+                        await this.moderationReport('Link Moderation', moderation, message, channel, userState);
                     }
                 }
                 catch (error) {

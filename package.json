@@ -2,7 +2,7 @@
   "name": "@joliegg/bot",
   "description": "A proof of concept structure for a multi service chatbot",
   "author": "Diana Islas Ocampo",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "main": "dist/index.js",
   "license": "HL3-CL",
   "engines": {
