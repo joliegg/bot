@@ -471,7 +471,7 @@ class DiscordBot  {
           const { source, moderation } = await this.moderationClient.moderateText(content, 50);
     
           if (moderation.length > 0) {
-            this.moderationReport('Text Moderation', moderation, message);
+            await this.moderationReport('Text Moderation', moderation, message);
           }
     
           for (const link of possibleLinks) {
@@ -499,7 +499,7 @@ class DiscordBot  {
                   await message.react('🚫');
                 }
     
-                this.moderationReport('Link Moderation', moderation, message);
+               await  this.moderationReport('Link Moderation', moderation, message);
               } else {
                 await message.react('✅');
               }
@@ -527,7 +527,7 @@ class DiscordBot  {
                 continue;
               }
 
-              this.moderationReport('Image Moderation', moderation, message, attachment.url);
+              await this.moderationReport('Image Moderation', moderation, message, attachment.url);
             } catch (error) {
               this.logger.error(error);
             }
@@ -543,7 +543,7 @@ class DiscordBot  {
 
                 message.content = source
       
-                this.moderationReport('Audio Moderation', moderation, message);
+                await this.moderationReport('Audio Moderation', moderation, message);
               }
             } catch (error) {
               this.logger.error(error);
@@ -563,7 +563,7 @@ class DiscordBot  {
                 continue;
               }
     
-              this.moderationReport('Image Moderation', moderation, message, embed.image.url);
+              await this.moderationReport('Image Moderation', moderation, message, embed.image.url);
             } catch (error) {
               this.logger.error(error);
             }
