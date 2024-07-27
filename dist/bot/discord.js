@@ -1,14 +1,51 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const discord_js_1 = require("discord.js");
+const discord_player_1 = require("discord-player");
 const utils_1 = require("../utils");
+const tts_1 = require("../utils/tts");
+const extractor_1 = require("@discord-player/extractor");
 const DAY_MILLISECONDS = 24 * 60 * 60 * 1000;
 class DiscordBot {
     configuration;
     moderationClient;
     logger;
+    _commands = new discord_js_1.Collection();
     listeners = new Map();
     _client;
+    _player;
+    static async deploy(configuration, commands) {
+        const guildCommands = [];
+        const globalCommands = [];
+        commands.forEach((command) => {
+            if ('slashCommand' in command && 'execute' in command && command.disabled !== true) {
+                if (command.type === 'guild' || !command.type) {
+                    guildCommands.push(command.slashCommand.toJSON());
+                }
+                else {
+                    globalCommands.push(command.slashCommand.toJSON());
+                }
+            }
+        });
+        const rest = new discord_js_1.REST().setToken(configuration.token);
+        // The put method is used to fully refresh all commands in the guild with the current set
+        const guild = await rest.put(discord_js_1.Routes.applicationGuildCommands(configuration.clientId, configuration.guildId), {
+            body: guildCommands
+        });
+        // The put method is used to fully refresh all commands in the guild with the current set
+        const global = await rest.put(discord_js_1.Routes.applicationCommands(configuration.clientId), {
+            body: globalCommands,
+        });
+        return {
+            global: global,
+            guild: guild,
+        };
+    }
+    static async undeploy(configuration) {
+        const rest = new discord_js_1.REST().setToken(configuration.token);
+        await rest.put(discord_js_1.Routes.applicationGuildCommands(configuration.clientId, configuration.guildId), { body: [] });
+        await rest.put(discord_js_1.Routes.applicationCommands(configuration.clientId), { body: [] });
+    }
     constructor(configuration, moderationClient, logger) {
         this.configuration = configuration;
         this.moderationClient = moderationClient;
@@ -30,6 +67,10 @@ class DiscordBot {
                 discord_js_1.Partials.Reaction,
             ],
         });
+        if (this.configuration.player) {
+            this._player = new discord_player_1.Player(this._client, this.configuration.player);
+            this._player.extractors.register(extractor_1.AttachmentExtractor, {});
+        }
         // Message Events
         this._client.on(discord_js_1.Events.MessageCreate, this._onMessage.bind(this));
         this._client.on(discord_js_1.Events.MessageUpdate, this._onMessageUpdate.bind(this));
@@ -41,12 +82,128 @@ class DiscordBot {
         // Ban Events
         this._client.on(discord_js_1.Events.GuildBanAdd, this._onMemberBan.bind(this));
         this._client.on(discord_js_1.Events.GuildBanRemove, this._onMemberUnban.bind(this));
+        // Interaction Events
+        this._client.on(discord_js_1.Events.InteractionCreate, async (interaction) => {
+            if (interaction.isChatInputCommand()) {
+                const command = this._commands.get(interaction.commandName);
+                if (!command) {
+                    this.logger.error(`No command matching ${interaction.commandName} was found.`);
+                    return this.trigger(discord_js_1.Events.InteractionCreate, interaction);
+                }
+                try {
+                    await command.execute(interaction, this);
+                }
+                catch (error) {
+                    await this.trigger(discord_js_1.Events.Error, error);
+                    const message = {
+                        content: 'There was an error while executing this command.',
+                        ephemeral: true,
+                    };
+                    if (interaction.replied || interaction.deferred) {
+                        await interaction.followUp(message);
+                    }
+                    else {
+                        await interaction.reply(message);
+                    }
+                }
+            }
+            else if (interaction.isAutocomplete()) {
+                const command = this._commands.get(interaction.commandName);
+                if (!command) {
+                    this.logger.error(`No command matching ${interaction.commandName} was found.`);
+                    return this.trigger(discord_js_1.Events.InteractionCreate, interaction);
+                }
+                if (!command.autocomplete) {
+                    this.logger.error(`Command ${interaction.commandName} does not have an autocomplete method.`);
+                    return this.trigger(discord_js_1.Events.InteractionCreate, interaction);
+                }
+                try {
+                    await command.autocomplete(interaction, this);
+                }
+                catch (error) {
+                    await this.trigger(discord_js_1.Events.Error, error);
+                }
+            }
+            return this.trigger(discord_js_1.Events.InteractionCreate, interaction);
+        });
+        this._client.on(discord_js_1.Events.Debug, (info) => {
+            this.logger.debug(info);
+            return this.trigger(discord_js_1.Events.Debug, info);
+        });
+        this._client.on(discord_js_1.Events.Error, (error) => {
+            this.logger.error(error);
+            return this.trigger(discord_js_1.Events.Error, error);
+        });
         this._client.on(discord_js_1.Events.ClientReady, (client) => {
             this.trigger('ready', client);
         });
     }
     client() {
         return this._client;
+    }
+    player() {
+        return this._player;
+    }
+    guild() {
+        return this._client.guilds.cache.get(this.configuration.guildId) || null;
+    }
+    command(name, command) {
+        if (command) {
+            this._commands.set(name, command);
+        }
+        return this._commands.get(name);
+    }
+    removeCommand(name) {
+        return this._commands.delete(name);
+    }
+    me() {
+        const guild = this.guild();
+        return guild?.members.me || null;
+    }
+    memberInVoiceChannel(member, same = false) {
+        if (member.voice.channel === null) {
+            return false;
+        }
+        if (same) {
+            const me = this.me();
+            return !me?.voice.channelId || member.voice.channelId === me?.voice.channelId;
+        }
+        return true;
+    }
+    queue() {
+        return (0, discord_player_1.useQueue)(this.configuration.guildId);
+    }
+    async tts(member, message, languageCode) {
+        if (!this.configuration.tts?.directory || !this._player) {
+            throw new Error('TTS is not configured');
+        }
+        if (!this.memberInVoiceChannel(member, true)) {
+            throw new Error('Not in the same voice channel');
+        }
+        const audioFile = await (0, tts_1.tts)(message, languageCode, this.configuration.tts.directory);
+        if (!audioFile) {
+            throw new Error('Error generating TTS');
+        }
+        const queue = this.queue();
+        const { track } = await this._player.play(member.voice.channel, audioFile, {
+            searchEngine: discord_player_1.QueryType.FILE,
+            nodeOptions: {
+                metadata: message,
+                leaveOnEndCooldown: 300000,
+                selfDeaf: true,
+                volume: 100,
+            }
+        });
+        if (queue) {
+            queue.node.jump(track);
+        }
+        return Promise.resolve(true);
+    }
+    setPresence(presence) {
+        return this._client.user?.setPresence(presence);
+    }
+    presence() {
+        return this._client.user?.presence;
     }
     async _onMessage(message) {
         // Ignore messages from bots
@@ -286,7 +443,52 @@ class DiscordBot {
         }
         return this.trigger(discord_js_1.Events.MessageDelete, message);
     }
+    memberEmbed(member) {
+        const embed = new discord_js_1.EmbedBuilder()
+            .setThumbnail(member.user.displayAvatarURL())
+            .setColor(0x3f51b5)
+            .setAuthor({
+            name: member.user.username,
+            iconURL: member.user.displayAvatarURL(),
+        })
+            .addFields([
+            {
+                name: 'Username',
+                value: member.user.username,
+                inline: true,
+            },
+            {
+                name: 'Nickname',
+                value: member.nickname || member.user.username,
+                inline: true,
+            },
+            {
+                name: 'Joined',
+                value: member.joinedAt?.toLocaleDateString() || new Date().toLocaleDateString(),
+                inline: true,
+            },
+            {
+                name: 'Created',
+                value: member.user.createdAt.toLocaleDateString(),
+                inline: true,
+            },
+            {
+                name: 'Roles',
+                value: member.roles.cache.map(r => r.name).join(', '),
+                inline: true,
+            },
+        ])
+            .setFooter({
+            text: `ID: ${member.id}`,
+        });
+        return embed;
+    }
     async _onMemberAdd(member) {
+        if (this.configuration.logsChannel) {
+            const embed = this.memberEmbed(member)
+                .setTitle('Member Joined');
+            await this.log('member', { embeds: [embed] });
+        }
         return this.trigger(discord_js_1.Events.GuildMemberAdd, member);
     }
     async _onMemberUpdate(oldMember, newMember) {
@@ -303,34 +505,43 @@ class DiscordBot {
         if (this.configuration.logsChannel) {
             // Check for nickname changes
             if (oldMember.nickname !== newMember.nickname) {
+                const embed = this.memberEmbed(newMember).setColor(0xe65100);
                 if (newMember.nickname === null) {
-                    await this.log('member', `**${newMember.user.tag} Nickname Removed**\nPrevious Nickname: **${oldMember.nickname}**`);
+                    embed.setTitle('Nickname Removed')
+                        .setDescription(`Previous Nickname: **${oldMember.nickname}**`);
                 }
                 else {
-                    await this.log('member', `**${newMember.user.tag} Nickname Changed**\nPervious Nickname: **${oldMember.nickname}**\nNew Nickname: **${newMember.nickname}**`);
+                    embed.setTitle('Nickname Changed')
+                        .setDescription(`Previous Nickname: **${oldMember.nickname}**`);
                 }
+                await this.log('member', { embeds: [embed] });
             }
             // Check for username changes
             if (oldMember.user.username !== newMember.user.username) {
-                await this.log('member', `**${newMember.user.tag} Username Changed**\nPrevious Username: **${oldMember.user.username}**\nNew Username: **${newMember.user.username}**`);
+                const embed = this.memberEmbed(newMember)
+                    .setTitle('Username Changed')
+                    .setColor(0xe65100)
+                    .setDescription(`Previous Username: **${oldMember.user.username}**`);
+                await this.log('member', { embeds: [embed] });
             }
             // Check for avatar changes
             if (oldMember.user.displayAvatarURL() !== newMember.user.displayAvatarURL()) {
-                const embed = new discord_js_1.EmbedBuilder()
-                    .setColor(0x7289DA)
-                    .setTitle(`**${newMember.user.tag} Avatar Changed**`)
-                    .setAuthor({
-                    name: newMember.user.username,
-                    iconURL: newMember.user.displayAvatarURL(),
-                })
-                    .setThumbnail(oldMember.user.displayAvatarURL())
-                    .setImage(newMember.user.displayAvatarURL());
+                const embed = this.memberEmbed(newMember)
+                    .setTitle('Avatar Changed')
+                    .setColor(0xe65100)
+                    .setImage(oldMember.user.displayAvatarURL());
                 await this.log('member', { embeds: [embed] });
             }
         }
         return this.trigger(discord_js_1.Events.GuildMemberUpdate, oldMember, newMember);
     }
     async _onMemberRemove(member) {
+        if (this.configuration.logsChannel) {
+            const embed = this.memberEmbed(member)
+                .setColor(0x212121)
+                .setTitle('Member Left');
+            await this.log('member', { embeds: [embed] });
+        }
         return this.trigger(discord_js_1.Events.GuildMemberRemove, member);
     }
     async _onMemberBan(ban) {

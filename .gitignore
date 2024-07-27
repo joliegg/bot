@@ -52,3 +52,4 @@ cypress/screenshots/
 .pnp.*
 
 google.json
+*.mp3

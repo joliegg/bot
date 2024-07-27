@@ -1,9 +1,15 @@
-import { Client, ClientEvents, ColorResolvable, EmbedBuilder, Events, GatewayIntentBits, GuildBan, GuildMember, Message, MessageCreateOptions, MessagePayload, PartialGuildMember, PartialMessage, Partials, TextChannel } from 'discord.js';
+import { Client, ClientEvents, ClientPresence, Collection, ColorResolvable, EmbedBuilder, Events, GatewayIntentBits, Guild, GuildBan, GuildMember, Message, MessageCreateOptions, MessagePayload, PartialGuildMember, PartialMessage, Partials, PresenceData, REST, RESTPostAPIChatInputApplicationCommandsJSONBody, Routes, TextChannel } from 'discord.js';
+
+import { GuildQueue, Player, PlayerInitOptions, QueryType, useQueue } from 'discord-player';
 
 import ModerationClient from '@joliegg/moderation';
 import { ModerationCategory } from '@joliegg/moderation/dist/types';
 import { isURL } from '../utils';
+import { tts } from '../utils/tts'
 import Logger from '../lib/logger';
+import { DiscordCommand } from '../lib/DiscordCommand';
+import { AttachmentExtractor } from '@discord-player/extractor';
+
 
 export interface DiscordConfiguration {
   token: string;
@@ -17,6 +23,12 @@ export interface DiscordConfiguration {
   languages?: string[];
 
   muteRole?: string;
+
+  player?: PlayerInitOptions;
+
+  tts?: {
+    directory: string;
+  };
 }
 
 export type DiscordPermissions = {
@@ -43,6 +55,10 @@ export interface DiscordBotEvents extends ClientEvents {
   unmute: [member: GuildMember];
 }
 
+export interface DeployResult {
+  length: number;
+}
+
 const DAY_MILLISECONDS = 24 * 60 * 60 * 1000;
 
 class DiscordBot  {
@@ -50,9 +66,51 @@ class DiscordBot  {
   protected moderationClient: ModerationClient;
   protected logger: Logger;
 
+  protected _commands: Collection<string, DiscordCommand> = new Collection();
+
   protected listeners = new Map<keyof DiscordBotEvents, Listener[]>();
 
   protected _client: Client;
+  protected _player?: Player;
+
+  static async deploy(configuration: DiscordConfiguration, commands: Collection<string, DiscordCommand>): Promise<{ global: DeployResult; guild: DeployResult }> {
+    const guildCommands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [];
+    const globalCommands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [];
+
+    commands.forEach((command) => {
+      if ('slashCommand' in command && 'execute' in command && command.disabled !== true) {
+        if (command.type === 'guild' || !command.type) {
+          guildCommands.push(command.slashCommand.toJSON());
+        } else {
+          globalCommands.push(command.slashCommand.toJSON());
+        }
+      }
+    });
+
+    const rest = new REST().setToken(configuration.token);
+
+		// The put method is used to fully refresh all commands in the guild with the current set
+		const guild = await rest.put(Routes.applicationGuildCommands(configuration.clientId, configuration.guildId),{ 
+      body: guildCommands 
+    });
+
+		// The put method is used to fully refresh all commands in the guild with the current set
+		const global = await rest.put(Routes.applicationCommands(configuration.clientId), { 
+      body: globalCommands, 
+    });
+    
+    return {
+      global: global as DeployResult,
+      guild: guild as DeployResult,
+    };
+  }
+
+  static async undeploy(configuration: DiscordConfiguration): Promise<void> {
+    const rest = new REST().setToken(configuration.token);
+
+    await rest.put(Routes.applicationGuildCommands(configuration.clientId, configuration.guildId), { body: [] });
+    await rest.put(Routes.applicationCommands(configuration.clientId), { body: [] });
+  }
 
   constructor(configuration: DiscordConfiguration, moderationClient: ModerationClient, logger: Logger) {
     this.configuration = configuration;
@@ -77,6 +135,11 @@ class DiscordBot  {
       ],
     });
 
+    if (this.configuration.player) {
+      this._player = new Player(this._client, this.configuration.player);
+      this._player.extractors.register(AttachmentExtractor, {});
+    }
+
     // Message Events
     this._client.on(Events.MessageCreate, this._onMessage.bind(this));
     this._client.on(Events.MessageUpdate, this._onMessageUpdate.bind(this));
@@ -90,6 +153,65 @@ class DiscordBot  {
     // Ban Events
     this._client.on(Events.GuildBanAdd, this._onMemberBan.bind(this));
     this._client.on(Events.GuildBanRemove, this._onMemberUnban.bind(this));
+
+    // Interaction Events
+    this._client.on(Events.InteractionCreate, async (interaction) => {
+      if (interaction.isChatInputCommand()) {
+        const command: DiscordCommand | undefined = this._commands.get(interaction.commandName);
+
+        if (!command) {
+          this.logger.error(`No command matching ${interaction.commandName} was found.`);
+          return this.trigger(Events.InteractionCreate, interaction);
+        }
+
+        try {
+          await command.execute(interaction, this);
+        } catch (error) {
+          await this.trigger(Events.Error, error as Error);
+
+          const message = { 
+            content: 'There was an error while executing this command.', 
+            ephemeral: true,
+          };
+
+          if (interaction.replied || interaction.deferred) {
+            await interaction.followUp(message);
+          } else {
+            await interaction.reply(message);
+          }
+        }
+      } else if (interaction.isAutocomplete()) {
+        const command: DiscordCommand | undefined = this._commands.get(interaction.commandName);
+
+        if (!command) {
+          this.logger.error(`No command matching ${interaction.commandName} was found.`);
+          return this.trigger(Events.InteractionCreate, interaction);
+        }
+
+        if (!command.autocomplete) {
+          this.logger.error(`Command ${interaction.commandName} does not have an autocomplete method.`);
+          return this.trigger(Events.InteractionCreate, interaction);
+        }
+
+        try {
+          await command.autocomplete(interaction, this);
+        } catch (error) {
+          await this.trigger(Events.Error, error as Error);
+        }
+      }
+
+      return this.trigger(Events.InteractionCreate, interaction);
+    });
+
+    this._client.on(Events.Debug, (info) => {
+      this.logger.debug(info);
+      return this.trigger(Events.Debug, info);
+    });
+
+    this._client.on(Events.Error, (error) => {
+      this.logger.error(error);
+      return this.trigger(Events.Error, error);
+    });
     
     this._client.on(Events.ClientReady, (client) => {
       this.trigger('ready', client);
@@ -99,6 +221,93 @@ class DiscordBot  {
 
   client(): Client {
     return this._client;
+  }
+
+  player(): Player | undefined {
+    return this._player;
+  }
+
+  guild(): Guild | null {
+    return this._client.guilds.cache.get(this.configuration.guildId) || null;
+  }
+
+  command(name: string, command?: DiscordCommand): DiscordCommand | undefined {
+    if (command) {
+      this._commands.set(name, command);
+    }
+
+    return this._commands.get(name);
+  }
+
+  removeCommand(name: string): boolean {
+    return this._commands.delete(name);
+  }
+
+  me(): GuildMember | null {
+    const guild = this.guild();
+
+    return guild?.members.me || null;
+  }
+
+  memberInVoiceChannel(member: GuildMember, same: boolean = false): boolean {
+    if (member.voice.channel === null) {
+      return false;
+    }
+
+    if (same) {
+      const me = this.me();
+
+      return !me?.voice.channelId ||  member.voice.channelId === me?.voice.channelId;
+    }
+
+    return true;
+  }
+
+  queue(): GuildQueue | null {
+    return useQueue(this.configuration.guildId);
+  } 
+
+  async tts(member: GuildMember, message: string, languageCode: string): Promise<boolean> {
+    if (!this.configuration.tts?.directory || !this._player) {
+      throw new Error('TTS is not configured');
+    }
+
+    if (!this.memberInVoiceChannel(member, true)) {
+      throw new Error('Not in the same voice channel');
+    }
+
+    const audioFile = await tts(message, languageCode, this.configuration.tts.directory);
+
+    if (!audioFile) {
+      throw new Error('Error generating TTS');
+    }
+  
+    const queue = this.queue();
+
+    const { track } = await this._player.play(member.voice.channel!, audioFile, {
+      searchEngine: QueryType.FILE,
+      nodeOptions: {
+        metadata: message,
+        leaveOnEndCooldown: 300000,
+        selfDeaf: true,
+        volume: 100,
+      }
+    });
+  
+    
+    if (queue) {
+      queue.node.jump(track);
+    }
+
+    return Promise.resolve(true);
+  }
+
+  setPresence(presence: PresenceData): ClientPresence | undefined {
+    return this._client.user?.setPresence(presence);
+  }
+
+  presence(): ClientPresence | undefined {
+    return this._client.user?.presence;
   }
 
   private async _onMessage(message: Message<boolean>): Promise<void> {
@@ -371,7 +580,55 @@ class DiscordBot  {
     return this.trigger(Events.MessageDelete, message);
   }
 
+  memberEmbed(member: GuildMember | PartialGuildMember): EmbedBuilder {
+    const embed = new EmbedBuilder()
+      .setThumbnail(member.user.displayAvatarURL())
+      .setColor(0x3f51b5)
+      .setAuthor({
+        name: member.user.username,
+        iconURL: member.user.displayAvatarURL(),
+      })
+      .addFields([
+        {
+          name: 'Username',
+          value: member.user.username,
+          inline: true,
+        },
+        {
+          name: 'Nickname',
+          value: member.nickname || member.user.username,
+          inline: true,
+        },
+        {
+          name: 'Joined',
+          value: member.joinedAt?.toLocaleDateString() || new Date().toLocaleDateString(),
+          inline: true,
+        },
+        {
+          name: 'Created',
+          value: member.user.createdAt.toLocaleDateString(), 
+          inline: true,
+        },
+        {
+          name: 'Roles',
+          value: member.roles.cache.map(r => r.name).join(', '),
+          inline: true,
+        },
+      ])
+      .setFooter({
+        text: `ID: ${member.id}`,
+      });
+
+    return embed;
+  }
+
   private async _onMemberAdd(member: GuildMember): Promise<void> {
+    if (this.configuration.logsChannel) {
+      const embed = this.memberEmbed(member)
+        .setTitle('Member Joined');
+
+      await this.log('member', { embeds: [embed] });
+    }
     
     return this.trigger(Events.GuildMemberAdd, member);
   }
@@ -391,38 +648,51 @@ class DiscordBot  {
     if (this.configuration.logsChannel) {
       // Check for nickname changes
       if (oldMember.nickname !== newMember.nickname) {
+        const embed = this.memberEmbed(newMember).setColor(0xe65100);
         if (newMember.nickname === null) {
-          await this.log('member', `**${newMember.user.tag} Nickname Removed**\nPrevious Nickname: **${oldMember.nickname}**`);
+          embed.setTitle('Nickname Removed')
+            .setDescription(`Previous Nickname: **${oldMember.nickname}**`);
         } else {
-          await this.log('member', `**${newMember.user.tag} Nickname Changed**\nPervious Nickname: **${oldMember.nickname}**\nNew Nickname: **${newMember.nickname}**`);
+          embed.setTitle('Nickname Changed')
+            .setDescription(`Previous Nickname: **${oldMember.nickname}**`);
         }
+
+        await this.log('member', { embeds: [embed] });
       }
 
       // Check for username changes
       if (oldMember.user.username !== newMember.user.username) {
-        await this.log('member', `**${newMember.user.tag} Username Changed**\nPrevious Username: **${oldMember.user.username}**\nNew Username: **${newMember.user.username}**`);
+        const embed = this.memberEmbed(newMember)
+          .setTitle('Username Changed')
+          .setColor(0xe65100)
+          .setDescription(`Previous Username: **${oldMember.user.username}**`);
+        
+        await this.log('member', { embeds: [embed] });
       }
 
       // Check for avatar changes
       if (oldMember.user.displayAvatarURL() !== newMember.user.displayAvatarURL()) {
-        const embed = new EmbedBuilder()
-          .setColor(0x7289DA)
-          .setTitle(`**${newMember.user.tag} Avatar Changed**`)
-          .setAuthor({
-            name: newMember.user.username,
-            iconURL: newMember.user.displayAvatarURL(),
-          })
-          .setThumbnail(oldMember.user.displayAvatarURL())
-          .setImage(newMember.user.displayAvatarURL());
+        const embed = this.memberEmbed(newMember)
+          .setTitle('Avatar Changed')
+          .setColor(0xe65100)
+          .setImage(oldMember.user.displayAvatarURL());
 
         await this.log('member', { embeds: [embed] });
       }
+
     }
 
     return this.trigger(Events.GuildMemberUpdate, oldMember, newMember);
   }
 
   private async _onMemberRemove(member: GuildMember | PartialGuildMember): Promise<void> {
+    if (this.configuration.logsChannel) {
+      const embed = this.memberEmbed(member as GuildMember)
+        .setColor(0x212121)
+        .setTitle('Member Left');
+
+      await this.log('member', { embeds: [embed] });
+    }
     return this.trigger(Events.GuildMemberRemove, member);
   }
 
@@ -454,122 +724,122 @@ class DiscordBot  {
   }
 
   async moderateMessage(message: Message<boolean> | PartialMessage): Promise<void> {
-      if (typeof message.content === 'string' && message.content !== '') {
-        // Normalize the message
-        const lowerCase = message.content.toLowerCase().replace(/discord\s*\.\s*gg/g, 'discord.gg');
-    
-        try {
-          const possibleLinks = lowerCase.split(' ')
-            .filter(w => isURL(w.trim()));
-    
-          let content = message.content;
-    
-          for (const link of possibleLinks) {
-            content = content.replace(link, '');
-          }
-    
-          const { source, moderation } = await this.moderationClient.moderateText(content, 50);
-    
-          if (moderation.length > 0) {
-            await this.moderationReport('Text Moderation', moderation, message);
-          }
-    
-          for (const link of possibleLinks) {
-            if (link.indexOf('https://tenor.com/view/') === 0) {
-              // This is just a GIF on Discord
-              continue;
-            }
-    
-            try {
-              const { source, moderation } = await this.moderationClient.moderateLink(link);
-    
-              if (moderation.length > 0) {
-                if (moderation.some(m => m.category === 'BLACK_LIST' || m.category === 'CUSTOM_BLACK_LIST')) {
-                  await message.delete();
-
-                  if (this.configuration.muteRole) {
-                    const member = message.member;
-                    
-                    if (member) {
-                      await member.roles.add(this.configuration.muteRole);
-                      await member.timeout(DAY_MILLISECONDS, 'Suspicious Activity: Blacklisted Link');
-                    }
-                  }
-                } else {
-                  await message.react('🚫');
-                }
-    
-               await  this.moderationReport('Link Moderation', moderation, message);
-              } else {
-                await message.react('✅');
-              }
-            } catch (error) {
-              this.logger.error(error);
-            }
-          }
-        } catch (error) {
-          this.logger.error(error);
+    if (typeof message.content === 'string' && message.content !== '') {
+      // Normalize the message
+      const lowerCase = message.content.toLowerCase().replace(/discord\s*\.\s*gg/g, 'discord.gg');
+  
+      try {
+        const possibleLinks = lowerCase.split(' ')
+          .filter(w => isURL(w.trim()));
+  
+        let content = message.content;
+  
+        for (const link of possibleLinks) {
+          content = content.replace(link, '');
         }
-      }
-    
-      // Moderate Images
-      if (message.attachments) {
-        for (const attachment of message.attachments.values()) {
-          if (attachment.contentType === null) {
+  
+        const { source, moderation } = await this.moderationClient.moderateText(content, 50);
+  
+        if (moderation.length > 0) {
+          await this.moderationReport('Text Moderation', moderation, message);
+        }
+  
+        for (const link of possibleLinks) {
+          if (link.indexOf('https://tenor.com/view/') === 0) {
+            // This is just a GIF on Discord
             continue;
           }
-    
-          if (attachment.contentType.indexOf('image') > -1) {
-            try {
-              const { source, moderation } = await this.moderationClient.moderateImage(attachment.url);
-    
-              if (moderation.length === 0) {
-                continue;
-              }
+  
+          try {
+            const { source, moderation } = await this.moderationClient.moderateLink(link);
+  
+            if (moderation.length > 0) {
+              if (moderation.some(m => m.category === 'BLACK_LIST' || m.category === 'CUSTOM_BLACK_LIST')) {
+                await message.delete();
 
-              await this.moderationReport('Image Moderation', moderation, message, attachment.url);
-            } catch (error) {
-              this.logger.error(error);
-            }
-          } else if (attachment.contentType.indexOf('audio') > -1) {
-            try {
-              const languages = this.configuration.languages || ['en-US'];
-              for (const language of languages) {
-                const { source, moderation } = await this.moderationClient.moderateAudio(attachment.url, language, 50);
-    
-                if (moderation.length === 0) {
-                  continue;
+                if (this.configuration.muteRole) {
+                  const member = message.member;
+                  
+                  if (member) {
+                    await member.roles.add(this.configuration.muteRole);
+                    await member.timeout(DAY_MILLISECONDS, 'Suspicious Activity: Blacklisted Link');
+                  }
                 }
-
-                message.content = source
-      
-                await this.moderationReport('Audio Moderation', moderation, message);
+              } else {
+                await message.react('🚫');
               }
-            } catch (error) {
-              this.logger.error(error);
+  
+              await  this.moderationReport('Link Moderation', moderation, message);
+            } else {
+              await message.react('✅');
             }
+          } catch (error) {
+            this.logger.error(error);
           }
         }
+      } catch (error) {
+        this.logger.error(error);
       }
-    
-      if (message.embeds) {
-    
-        for (const embed of message.embeds) {
-          if (embed.image) {
-            try {
-              const { source, moderation } = await this.moderationClient.moderateImage(embed.image.url);
-    
+    }
+  
+    // Moderate Images
+    if (message.attachments) {
+      for (const attachment of message.attachments.values()) {
+        if (attachment.contentType === null) {
+          continue;
+        }
+  
+        if (attachment.contentType.indexOf('image') > -1) {
+          try {
+            const { source, moderation } = await this.moderationClient.moderateImage(attachment.url);
+  
+            if (moderation.length === 0) {
+              continue;
+            }
+
+            await this.moderationReport('Image Moderation', moderation, message, attachment.url);
+          } catch (error) {
+            this.logger.error(error);
+          }
+        } else if (attachment.contentType.indexOf('audio') > -1) {
+          try {
+            const languages = this.configuration.languages || ['en-US'];
+            for (const language of languages) {
+              const { source, moderation } = await this.moderationClient.moderateAudio(attachment.url, language, 50);
+  
               if (moderation.length === 0) {
                 continue;
               }
+
+              message.content = source
     
-              await this.moderationReport('Image Moderation', moderation, message, embed.image.url);
-            } catch (error) {
-              this.logger.error(error);
+              await this.moderationReport('Audio Moderation', moderation, message);
             }
+          } catch (error) {
+            this.logger.error(error);
           }
         }
       }
+    }
+  
+    if (message.embeds) {
+  
+      for (const embed of message.embeds) {
+        if (embed.image) {
+          try {
+            const { source, moderation } = await this.moderationClient.moderateImage(embed.image.url);
+  
+            if (moderation.length === 0) {
+              continue;
+            }
+  
+            await this.moderationReport('Image Moderation', moderation, message, embed.image.url);
+          } catch (error) {
+            this.logger.error(error);
+          }
+        }
+      }
+    }
   }
 
   async message(channeld: string, message: string | MessagePayload | MessageCreateOptions): Promise<Message<boolean>> {
@@ -620,8 +890,6 @@ class DiscordBot  {
 
     return this.trigger('log', type, message);
   }
-
 }
-
 
 export default DiscordBot;
