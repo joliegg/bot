@@ -70,6 +70,8 @@ class DiscordBot  {
 
   protected listeners = new Map<keyof DiscordBotEvents, Listener[]>();
 
+  protected _extras: Record<string, any> = {};
+
   protected _client: Client;
   protected _player?: Player;
 
@@ -310,6 +312,14 @@ class DiscordBot  {
     return this._client.user?.presence;
   }
 
+  extra(name: string, value?: any): any {
+    if (value) {
+      this._extras[name] = value;
+    }
+
+    return this._extras[name];
+  }
+
   private async _onMessage(message: Message<boolean>): Promise<void> {
     // Ignore messages from bots
     if (message.author.bot) return;
@@ -426,7 +436,7 @@ class DiscordBot  {
     return this.trigger(Events.MessageUpdate, oldMessage, newMessage);
   }
 
-  private _messageToEmbed(title: string, color: ColorResolvable, message: Message<boolean> | PartialMessage): EmbedBuilder[] {
+  messageEmbed(title: string, color: ColorResolvable, message: Message<boolean> | PartialMessage): EmbedBuilder[] {
     const embeds: EmbedBuilder[] = [];
 
     if (message.content || message.stickers.size > 0) {

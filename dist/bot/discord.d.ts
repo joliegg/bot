@@ -1,4 +1,4 @@
-import { Client, ClientEvents, ClientPresence, Collection, EmbedBuilder, Guild, GuildMember, Message, MessageCreateOptions, MessagePayload, PartialGuildMember, PartialMessage, PresenceData } from 'discord.js';
+import { Client, ClientEvents, ClientPresence, Collection, ColorResolvable, EmbedBuilder, Guild, GuildMember, Message, MessageCreateOptions, MessagePayload, PartialGuildMember, PartialMessage, PresenceData } from 'discord.js';
 import { GuildQueue, Player, PlayerInitOptions } from 'discord-player';
 import ModerationClient from '@joliegg/moderation';
 import { ModerationCategory } from '@joliegg/moderation/dist/types';
@@ -47,6 +47,7 @@ declare class DiscordBot {
     protected logger: Logger;
     protected _commands: Collection<string, DiscordCommand>;
     protected listeners: Map<keyof DiscordBotEvents, Listener[]>;
+    protected _extras: Record<string, any>;
     protected _client: Client;
     protected _player?: Player;
     static deploy(configuration: DiscordConfiguration, commands: Collection<string, DiscordCommand>): Promise<{
@@ -66,9 +67,10 @@ declare class DiscordBot {
     tts(member: GuildMember, message: string, languageCode: string): Promise<boolean>;
     setPresence(presence: PresenceData): ClientPresence | undefined;
     presence(): ClientPresence | undefined;
+    extra(name: string, value?: any): any;
     private _onMessage;
     private _onMessageUpdate;
-    private _messageToEmbed;
+    messageEmbed(title: string, color: ColorResolvable, message: Message<boolean> | PartialMessage): EmbedBuilder[];
     private _onMessageDelete;
     memberEmbed(member: GuildMember | PartialGuildMember): EmbedBuilder;
     private _onMemberAdd;

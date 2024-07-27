@@ -12,6 +12,7 @@ class DiscordBot {
     logger;
     _commands = new discord_js_1.Collection();
     listeners = new Map();
+    _extras = {};
     _client;
     _player;
     static async deploy(configuration, commands) {
@@ -205,6 +206,12 @@ class DiscordBot {
     presence() {
         return this._client.user?.presence;
     }
+    extra(name, value) {
+        if (value) {
+            this._extras[name] = value;
+        }
+        return this._extras[name];
+    }
     async _onMessage(message) {
         // Ignore messages from bots
         if (message.author.bot)
@@ -305,7 +312,7 @@ class DiscordBot {
         }
         return this.trigger(discord_js_1.Events.MessageUpdate, oldMessage, newMessage);
     }
-    _messageToEmbed(title, color, message) {
+    messageEmbed(title, color, message) {
         const embeds = [];
         if (message.content || message.stickers.size > 0) {
             const embed = new discord_js_1.EmbedBuilder()
