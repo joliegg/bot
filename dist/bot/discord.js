@@ -6,6 +6,7 @@ const utils_1 = require("../utils");
 const tts_1 = require("../utils/tts");
 const extractor_1 = require("@discord-player/extractor");
 const DAY_MILLISECONDS = 24 * 60 * 60 * 1000;
+const FIVE_SECONDS = 5 * 1000;
 class DiscordBot {
     configuration;
     moderationClient;
@@ -575,11 +576,20 @@ class DiscordBot {
             // Normalize the message
             const lowerCase = message.content.toLowerCase().replace(/discord\s*\.\s*gg/g, 'discord.gg');
             try {
-                const possibleLinks = lowerCase.split(' ')
+                let possibleLinks = lowerCase.split(' ')
                     .filter(w => (0, utils_1.isURL)(w.trim()));
                 let content = message.content;
                 for (const link of possibleLinks) {
                     content = content.replace(link, '');
+                    // Check for markdown links
+                    if (link.indexOf('[') === 0 && link.lastIndexOf(')') === (link.length - 1)) {
+                        const [textPart, urlPart] = link.substring(1, link.length - 1).split('](');
+                        possibleLinks = possibleLinks.filter(l => l !== link);
+                        if ((0, utils_1.isURL)(textPart)) {
+                            possibleLinks.push(textPart);
+                        }
+                        possibleLinks.push(urlPart);
+                    }
                 }
                 const { source, moderation } = await this.moderationClient.moderateText(content, 50);
                 if (moderation.length > 0) {
@@ -593,20 +603,26 @@ class DiscordBot {
                     try {
                         const { source, moderation } = await this.moderationClient.moderateLink(link);
                         if (moderation.length > 0) {
+                            await this.moderationReport('Link Moderation', moderation, message);
+                            const member = message.member;
                             if (moderation.some(m => m.category === 'BLACK_LIST' || m.category === 'CUSTOM_BLACK_LIST')) {
                                 await message.delete();
-                                if (this.configuration.muteRole) {
-                                    const member = message.member;
-                                    if (member) {
-                                        await member.roles.add(this.configuration.muteRole);
-                                        await member.timeout(DAY_MILLISECONDS, 'Suspicious Activity: Blacklisted Link');
-                                    }
+                                if (this.configuration.muteRole && member) {
+                                    await member.roles.add(this.configuration.muteRole);
+                                    await member.timeout(DAY_MILLISECONDS, 'Suspicious Activity: Blacklisted Link');
+                                }
+                            }
+                            else if (moderation.some(m => m.category === 'URL_SHORTENER')) {
+                                await message.delete();
+                                const member = message.member;
+                                if (member) {
+                                    await this.dm(member.user.id, `Your message in <#${message.channelId}> was deleted because it contained a shortened URL.`);
+                                    await member.timeout(FIVE_SECONDS, 'Suspicious Activity: Shortened URL');
                                 }
                             }
                             else {
                                 await message.react('🚫');
                             }
-                            await this.moderationReport('Link Moderation', moderation, message);
                         }
                         else {
                             await message.react('✅');

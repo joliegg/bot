@@ -152,13 +152,26 @@ class TwitchBot {
     const lowerCase = message.toLowerCase().replace(/discord\s*\.\s*gg/g, 'discord.gg').replace(/twitch\s*\.\s*tv/g, 'twitch.tv');
 
     try {
-      const possibleLinks = lowerCase.split(' ')
+      let possibleLinks = lowerCase.split(' ')
         .filter(w => isURL(w.trim()));
 
       let content = message;
 
       for (const link of possibleLinks) {
         content = content.replace(link, '');
+
+        // Check for markdown links
+        if (link.indexOf('[') === 0 && link.lastIndexOf(')') === (link.length - 1)) {
+          const [textPart, urlPart] = link.substring(1, link.length - 1).split('](');
+
+          possibleLinks = possibleLinks.filter(l => l !== link);
+
+          if (isURL(textPart)) {
+            possibleLinks.push(textPart);
+          }
+
+          possibleLinks.push(urlPart);
+        }
       }
 
       const { source, moderation } = await this.moderationClient.moderateText(content, 50);
@@ -172,7 +185,7 @@ class TwitchBot {
           const { source, moderation } = await this.moderationClient.moderateLink(link);
 
           if (moderation.length > 0) {
-            if (moderation.some(m => m.category === 'BLACK_LIST' || m.category === 'CUSTOM_BLACK_LIST')) {
+            if (moderation.some(m => m.category === 'BLACK_LIST' || m.category === 'CUSTOM_BLACK_LIST' || m.category === 'URL_SHORTENER') ) {
               // TODO: We want to timeout the user for a certain amount of time
             }
 

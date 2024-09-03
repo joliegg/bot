@@ -24,6 +24,7 @@ const moderationClient = new ModerationClient({
   urlBlackList: [
     'discord.gg',
     'discord .gg',
+    'steamcommunity.com/gift-card',
   ],
 });
 

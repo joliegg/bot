@@ -1,4 +1,4 @@
-import { Client, ClientEvents, ClientPresence, Collection, ColorResolvable, EmbedBuilder, Guild, GuildMember, Message, MessageCreateOptions, MessagePayload, PartialGuildMember, PartialMessage, PresenceData } from 'discord.js';
+import { Channel, Client, ClientEvents, ClientPresence, Collection, ColorResolvable, EmbedBuilder, Guild, GuildMember, Message, MessageCreateOptions, MessagePayload, PartialGroupDMChannel, PartialGuildMember, PartialMessage, PresenceData } from 'discord.js';
 import { GuildQueue, Player, PlayerInitOptions } from 'discord-player';
 import ModerationClient from '@joliegg/moderation';
 import { ModerationCategory } from '@joliegg/moderation/dist/types';
@@ -32,6 +32,11 @@ export type DiscordPermissions = {
 };
 export type Listener = (this: DiscordBot, ...args: any[]) => any;
 export type LogType = 'message' | 'member';
+type NonPartialGroupDMChannel<Structure extends {
+    channel: Channel;
+}> = Structure & {
+    channel: Exclude<Structure['channel'], PartialGroupDMChannel>;
+};
 export interface DiscordBotEvents extends ClientEvents {
     moderation: [embed: EmbedBuilder, moderation: ModerationCategory[], message: Message<boolean> | PartialMessage];
     log: [type: LogType, message: string | MessagePayload | MessageCreateOptions];
@@ -70,7 +75,7 @@ declare class DiscordBot {
     extra(name: string, value?: any): any;
     private _onMessage;
     private _onMessageUpdate;
-    messageEmbed(title: string, color: ColorResolvable, message: Message<boolean> | PartialMessage): EmbedBuilder[];
+    messageEmbed(title: string, color: ColorResolvable, message: NonPartialGroupDMChannel<Message<boolean>> | PartialMessage): EmbedBuilder[];
     private _onMessageDelete;
     memberEmbed(member: GuildMember | PartialGuildMember): EmbedBuilder;
     private _onMemberAdd;

@@ -1,4 +1,4 @@
-import { Client, ClientEvents, ClientPresence, Collection, ColorResolvable, EmbedBuilder, Events, GatewayIntentBits, Guild, GuildBan, GuildMember, Message, MessageCreateOptions, MessagePayload, PartialGuildMember, PartialMessage, Partials, PresenceData, REST, RESTPostAPIChatInputApplicationCommandsJSONBody, Routes, TextChannel } from 'discord.js';
+import { Channel, Client, ClientEvents, ClientPresence, Collection, ColorResolvable, EmbedBuilder, Events, GatewayIntentBits, Guild, GuildBan, GuildMember, Message, MessageCreateOptions, MessagePayload, PartialGroupDMChannel, PartialGuildMember, PartialMessage, Partials, PresenceData, REST, RESTPostAPIChatInputApplicationCommandsJSONBody, Routes, TextChannel } from 'discord.js';
 
 import { GuildQueue, Player, PlayerInitOptions, QueryType, useQueue } from 'discord-player';
 
@@ -48,6 +48,10 @@ export type Listener =  (this: DiscordBot, ...args: any[]) => any;
 
 export type LogType = 'message' | 'member';
 
+type NonPartialGroupDMChannel<Structure extends { channel: Channel }> = Structure & {
+  channel: Exclude<Structure['channel'], PartialGroupDMChannel>;
+};
+
 export interface DiscordBotEvents extends ClientEvents {
   moderation: [embed: EmbedBuilder, moderation: ModerationCategory[], message: Message<boolean> | PartialMessage];
   log: [type: LogType ,message: string | MessagePayload | MessageCreateOptions];
@@ -60,6 +64,7 @@ export interface DeployResult {
 }
 
 const DAY_MILLISECONDS = 24 * 60 * 60 * 1000;
+const FIVE_SECONDS = 5 * 1000;
 
 class DiscordBot  {
   protected configuration: DiscordConfiguration;
@@ -320,7 +325,7 @@ class DiscordBot  {
     return this._extras[name];
   }
 
-  private async _onMessage(message: Message<boolean>): Promise<void> {
+  private async _onMessage(message: NonPartialGroupDMChannel<Message<boolean>>): Promise<void> {
     // Ignore messages from bots
     if (message.author.bot) return;
 
@@ -436,7 +441,7 @@ class DiscordBot  {
     return this.trigger(Events.MessageUpdate, oldMessage, newMessage);
   }
 
-  messageEmbed(title: string, color: ColorResolvable, message: Message<boolean> | PartialMessage): EmbedBuilder[] {
+  messageEmbed(title: string, color: ColorResolvable, message: NonPartialGroupDMChannel<Message<boolean>> | PartialMessage): EmbedBuilder[] {
     const embeds: EmbedBuilder[] = [];
 
     if (message.content || message.stickers.size > 0) {
@@ -509,7 +514,7 @@ class DiscordBot  {
     return embeds;
   }
     
-  private async _onMessageDelete(message: Message<boolean> | PartialMessage): Promise<void> {
+  private async _onMessageDelete(message: NonPartialGroupDMChannel<Message<boolean> | PartialMessage>): Promise<void> {
     try {
       const embeds: EmbedBuilder[] = [];
 
@@ -739,15 +744,28 @@ class DiscordBot  {
       const lowerCase = message.content.toLowerCase().replace(/discord\s*\.\s*gg/g, 'discord.gg');
   
       try {
-        const possibleLinks = lowerCase.split(' ')
+        let possibleLinks = lowerCase.split(' ')
           .filter(w => isURL(w.trim()));
   
         let content = message.content;
   
         for (const link of possibleLinks) {
           content = content.replace(link, '');
+
+          // Check for markdown links
+          if (link.indexOf('[') === 0 && link.lastIndexOf(')') === (link.length - 1)) {
+            const [textPart, urlPart] = link.substring(1, link.length - 1).split('](');
+
+            possibleLinks = possibleLinks.filter(l => l !== link);
+
+            if (isURL(textPart)) {
+              possibleLinks.push(textPart);
+            }
+
+            possibleLinks.push(urlPart);
+          }
         }
-  
+
         const { source, moderation } = await this.moderationClient.moderateText(content, 50);
   
         if (moderation.length > 0) {
@@ -761,25 +779,31 @@ class DiscordBot  {
           }
   
           try {
+          
             const { source, moderation } = await this.moderationClient.moderateLink(link);
   
             if (moderation.length > 0) {
+              await this.moderationReport('Link Moderation', moderation, message);
+
+              const member = message.member;
+
               if (moderation.some(m => m.category === 'BLACK_LIST' || m.category === 'CUSTOM_BLACK_LIST')) {
                 await message.delete();
 
-                if (this.configuration.muteRole) {
-                  const member = message.member;
-                  
-                  if (member) {
-                    await member.roles.add(this.configuration.muteRole);
-                    await member.timeout(DAY_MILLISECONDS, 'Suspicious Activity: Blacklisted Link');
-                  }
+                if (this.configuration.muteRole && member) {
+                  await member.roles.add(this.configuration.muteRole);
+                  await member.timeout(DAY_MILLISECONDS, 'Suspicious Activity: Blacklisted Link');
+                }
+              } else if (moderation.some(m => m.category === 'URL_SHORTENER')) {
+                await message.delete();
+                const member = message.member;
+                if (member) {
+                  await this.dm(member.user.id, `Your message in <#${message.channelId}> was deleted because it contained a shortened URL.`);
+                  await member.timeout(FIVE_SECONDS, 'Suspicious Activity: Shortened URL');
                 }
               } else {
                 await message.react('🚫');
               }
-  
-              await  this.moderationReport('Link Moderation', moderation, message);
             } else {
               await message.react('✅');
             }

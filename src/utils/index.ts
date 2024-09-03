@@ -15,3 +15,15 @@ export const isURL = (text: string): boolean => {
   return URL_REGEX.test(text);
 };
 
+export const expandURL = async (url: string): Promise<string> => { 
+  const response = await fetch(url, {
+    method: 'HEAD',
+    redirect: 'manual',
+  });
+
+  if (response.status === 301 || response.status === 302) {
+    return response.headers.get('location') || url;
+  }
+
+  return url;
+};
