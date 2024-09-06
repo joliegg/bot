@@ -754,10 +754,16 @@ class DiscordBot  {
 
           // Check for markdown links
           if (link.indexOf('[') === 0 && link.lastIndexOf(')') === (link.length - 1)) {
-            const [textPart, urlPart] = link.substring(1, link.length - 1).split('](');
+            // eslint-disable-next-line prefer-const
+            let [textPart, urlPart] = link.substring(1, link.length - 1).split('](');
 
             possibleLinks = possibleLinks.filter(l => l !== link);
 
+            if (!textPart.startsWith('http')) {
+              textPart = `https://${textPart}`;
+            }
+
+            // Also check the text part just in case
             if (isURL(textPart)) {
               possibleLinks.push(textPart);
             }
@@ -766,11 +772,7 @@ class DiscordBot  {
           }
         }
 
-        const { source, moderation } = await this.moderationClient.moderateText(content, 50);
-  
-        if (moderation.length > 0) {
-          await this.moderationReport('Text Moderation', moderation, message);
-        }
+        let timeOutGiven = 0;
   
         for (const link of possibleLinks) {
           if (link.indexOf('https://tenor.com/view/') === 0) {
@@ -779,37 +781,69 @@ class DiscordBot  {
           }
   
           try {
-          
             const { source, moderation } = await this.moderationClient.moderateLink(link);
   
             if (moderation.length > 0) {
-              await this.moderationReport('Link Moderation', moderation, message);
-
               const member = message.member;
 
               if (moderation.some(m => m.category === 'BLACK_LIST' || m.category === 'CUSTOM_BLACK_LIST')) {
-                await message.delete();
+                const promises = [];
+                
+                // Only timeout if we haven't already given one of same length
+                if (member && timeOutGiven < DAY_MILLISECONDS) {
+                  try {
+                    // It's likely that this fails if the member has higher permissions than the bot
+                    promises.push(member.timeout(DAY_MILLISECONDS, 'Suspicious Activity: Blacklisted Link'));
+                    timeOutGiven = DAY_MILLISECONDS;
 
-                if (this.configuration.muteRole && member) {
-                  await member.roles.add(this.configuration.muteRole);
-                  await member.timeout(DAY_MILLISECONDS, 'Suspicious Activity: Blacklisted Link');
+                    if (this.configuration.muteRole) {
+                      promises.push(member.roles.add(this.configuration.muteRole));
+                    }
+                  } catch (error) {
+                    this.logger.error(error);
+                  }
                 }
+
+                // Always delete the message
+                promises.push(message.delete());
+
+                await Promise.allSettled(promises);
               } else if (moderation.some(m => m.category === 'URL_SHORTENER')) {
-                await message.delete();
-                const member = message.member;
-                if (member) {
-                  await this.dm(member.user.id, `Your message in <#${message.channelId}> was deleted because it contained a shortened URL.`);
-                  await member.timeout(FIVE_SECONDS, 'Suspicious Activity: Shortened URL');
+                const promises = [];
+
+                if (member && timeOutGiven < FIVE_SECONDS) {
+                  try {
+                    // It's likely that this fails if the member has higher permissions than the bot
+                    promises.push(member.timeout(FIVE_SECONDS, 'Suspicious Activity: Shortened URL'));
+                  } catch (error) {
+                    this.logger.error(error);
+                  }
                 }
+
+                promises.push(message.delete());
+
+                if (member) {
+                  promises.push(this.dm(member.user.id, `Your message in <#${message.channelId}> was deleted because it contained a shortened URL.`));
+                }
+                await Promise.allSettled(promises);
               } else {
                 await message.react('🚫');
               }
+
+              // Report the moderation
+              await this.moderationReport('Link Moderation', moderation, message);
             } else {
               await message.react('✅');
             }
           } catch (error) {
             this.logger.error(error);
           }
+        }
+
+        const { source, moderation } = await this.moderationClient.moderateText(content, 50);
+  
+        if (moderation.length > 0) {
+          await this.moderationReport('Text Moderation', moderation, message);
         }
       } catch (error) {
         this.logger.error(error);
