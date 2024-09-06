@@ -1183,7 +1183,7 @@ __metadata:
     "@discord-player/opus": "npm:^0.1.2"
     "@eslint/js": "npm:^9.9.1"
     "@google-cloud/text-to-speech": "npm:^5.4.0"
-    "@joliegg/moderation": "npm:^0.4.1"
+    "@joliegg/moderation": "npm:^0.4.3"
     "@types/babel__core": "npm:^7.20.5"
     "@types/node": "npm:^22.5.2"
     "@types/tmi.js": "npm:^1.8.6"
@@ -1206,16 +1206,16 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@joliegg/moderation@npm:^0.4.1":
-  version: 0.4.1
-  resolution: "@joliegg/moderation@npm:0.4.1"
+"@joliegg/moderation@npm:^0.4.3":
+  version: 0.4.3
+  resolution: "@joliegg/moderation@npm:0.4.3"
   dependencies:
     "@aws-sdk/client-rekognition": "npm:^3.614.0"
     "@google-cloud/language": "npm:^6.4.0"
     "@google-cloud/speech": "npm:^6.6.1"
     axios: "npm:^1.7.2"
     sharp: "npm:^0.32.6"
-  checksum: 10c0/92ec113662008c85becfca130a043a290f355743c29f80247c201f906a975935eba9dcacc64e40623d6d5d34262b831d9e371593a73a6733700339ab50b2bf89
+  checksum: 10c0/1915b3d224e207c66942a493f701c2b13711103be68f6209d9ea99baee6c2a95c8c47ae2a8989df64b2132c301f0ec433e505c3d275d3577075113e41ced54bd
   languageName: node
   linkType: hard
 
