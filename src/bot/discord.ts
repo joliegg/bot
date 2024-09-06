@@ -759,10 +759,6 @@ class DiscordBot  {
 
             possibleLinks = possibleLinks.filter(l => l !== link);
 
-            if (!textPart.startsWith('http')) {
-              textPart = `https://${textPart}`;
-            }
-
             // Also check the text part just in case
             if (isURL(textPart)) {
               possibleLinks.push(textPart);

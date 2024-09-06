@@ -586,9 +586,6 @@ class DiscordBot {
                         // eslint-disable-next-line prefer-const
                         let [textPart, urlPart] = link.substring(1, link.length - 1).split('](');
                         possibleLinks = possibleLinks.filter(l => l !== link);
-                        if (!textPart.startsWith('http')) {
-                            textPart = `https://${textPart}`;
-                        }
                         // Also check the text part just in case
                         if ((0, utils_1.isURL)(textPart)) {
                             possibleLinks.push(textPart);

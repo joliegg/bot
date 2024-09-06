@@ -8,11 +8,6 @@ export const isURL = (text: string): boolean => {
     return isURL(urlPart);
   }
 
-  // We want to check even the non-active links
-  if (!text.startsWith('http')) {
-    text = `https://${text}`;
-  }
-
   try {
     new URL(text);
     return true;
