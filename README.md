@@ -1,4 +1,6 @@
-# @joliegg/bot
+[![Hippocratic License HL3-CL](https://img.shields.io/static/v1?label=Hippocratic%20License&message=HL3-CL&labelColor=5e2751&color=bc8c3d)](https://firstdonoharm.dev/version/3/0/cl.html)
+
+# Jolie Bot
 
 A proof of concept basis for a multi-service bot with built-in moderation and some other utilities to help you develop a custom bot faster.
 
