@@ -28,3 +28,13 @@ export const expandURL = async (url: string): Promise<string> => {
 
   return url;
 };
+
+export const downloadFile = async (url: string): Promise<{ data: Buffer, contentType: string | null }> => {
+  const response = await fetch(url);
+  const buffer = await response.arrayBuffer();
+
+  return {
+    data: Buffer.from(buffer),
+    contentType: response.headers.get('content-type'),
+  };
+};

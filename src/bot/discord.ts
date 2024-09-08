@@ -1,4 +1,4 @@
-import { Channel, Client, ClientEvents, ClientPresence, Collection, ColorResolvable, EmbedBuilder, Events, GatewayIntentBits, Guild, GuildBan, GuildMember, Message, MessageCreateOptions, MessagePayload, PartialGroupDMChannel, PartialGuildMember, PartialMessage, Partials, PresenceData, REST, RESTPostAPIChatInputApplicationCommandsJSONBody, Routes, TextChannel } from 'discord.js';
+import { ActionRow, ActionRowBuilder, ButtonBuilder, Channel, Client, ClientEvents, ClientPresence, Collection, ColorResolvable, EmbedBuilder, Events, GatewayIntentBits, Guild, GuildBan, GuildMember, Message, MessageActionRowComponent, MessageCreateOptions, MessagePayload, PartialGroupDMChannel, PartialGuildMember, PartialMessage, Partials, PresenceData, REST, RESTPostAPIChatInputApplicationCommandsJSONBody, Routes, TextChannel } from 'discord.js';
 
 import { GuildQueue, Player, PlayerInitOptions, QueryType, useQueue } from 'discord-player';
 
@@ -953,6 +953,22 @@ class DiscordBot  {
     }
 
     return this.trigger('log', type, message);
+  }
+
+  replaceRowButton(message: Message<boolean>, oldButtonId: string, newButton: ButtonBuilder): (ActionRow<MessageActionRowComponent> | ActionRowBuilder<ButtonBuilder>)[] {
+    const rows = message.components;
+
+    const updated = rows.map(row => {
+      if (row.components.some(component => component.customId === oldButtonId)) {
+        const updatedComponents = row.components.map(component =>
+          component.customId === oldButtonId ? newButton : component
+        );
+        return new ActionRowBuilder<ButtonBuilder>().addComponents(updatedComponents.map(c => c as ButtonBuilder));
+      }
+      return row;
+    });
+
+    return updated;
   }
 }
 

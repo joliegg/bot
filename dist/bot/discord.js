@@ -755,5 +755,16 @@ class DiscordBot {
         }
         return this.trigger('log', type, message);
     }
+    replaceRowButton(message, oldButtonId, newButton) {
+        const rows = message.components;
+        const updated = rows.map(row => {
+            if (row.components.some(component => component.customId === oldButtonId)) {
+                const updatedComponents = row.components.map(component => component.customId === oldButtonId ? newButton : component);
+                return new discord_js_1.ActionRowBuilder().addComponents(updatedComponents.map(c => c));
+            }
+            return row;
+        });
+        return updated;
+    }
 }
 exports.default = DiscordBot;

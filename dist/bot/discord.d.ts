@@ -1,4 +1,4 @@
-import { Channel, Client, ClientEvents, ClientPresence, Collection, ColorResolvable, EmbedBuilder, Guild, GuildMember, Message, MessageCreateOptions, MessagePayload, PartialGroupDMChannel, PartialGuildMember, PartialMessage, PresenceData } from 'discord.js';
+import { ActionRow, ActionRowBuilder, ButtonBuilder, Channel, Client, ClientEvents, ClientPresence, Collection, ColorResolvable, EmbedBuilder, Guild, GuildMember, Message, MessageActionRowComponent, MessageCreateOptions, MessagePayload, PartialGroupDMChannel, PartialGuildMember, PartialMessage, PresenceData } from 'discord.js';
 import { GuildQueue, Player, PlayerInitOptions } from 'discord-player';
 import ModerationClient from '@joliegg/moderation';
 import { ModerationCategory } from '@joliegg/moderation/dist/types';
@@ -91,5 +91,6 @@ declare class DiscordBot {
     dm(userId: string, message: string | MessagePayload | MessageCreateOptions): Promise<Message<boolean>>;
     moderationReport(title: string, moderation: ModerationCategory[], message: Message<boolean> | PartialMessage, attachment?: string | null): Promise<void>;
     log(type: LogType, message: string | MessagePayload | MessageCreateOptions): Promise<any>;
+    replaceRowButton(message: Message<boolean>, oldButtonId: string, newButton: ButtonBuilder): (ActionRow<MessageActionRowComponent> | ActionRowBuilder<ButtonBuilder>)[];
 }
 export default DiscordBot;
